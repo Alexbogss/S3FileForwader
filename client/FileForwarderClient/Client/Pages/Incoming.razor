@@ -1,0 +1,60 @@
+﻿@page "/incoming"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.WebAssembly.Authentication
+@using FileForwarderClient.Shared
+
+@attribute [Authorize]
+@inject HttpClient Http
+
+<h3>Входящие</h3>
+
+@if (messages == null)
+{
+    <p><em>Загрузка...</em></p>
+}
+else
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Отправитель</th>
+                <th>Дата создания</th>
+                <th>Сообщение</th>
+                <th>Ошибка</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var message in messages)
+            {
+                <tr @onclick="@(() => selected = message)">
+                    <td>@message.SenderUserId</td>
+                    <td>@message.CreateDateTime</td>
+                    <td>@message.Description</td>
+                    <td>@message.Error</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@if (selected != null)
+{
+    <MessageDetail Message="selected"/>
+}
+
+@code {
+    private MessageContract[] messages;
+    private MessageContract selected;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            messages = await Http.GetFromJsonAsync<MessageContract[]>("api/messages/incoming");
+        }
+        catch (AccessTokenNotAvailableException exception)
+        {
+            exception.Redirect();
+        }
+    }
+}

@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.name }}
+  labels:
+    name: {{ .Values.name }}
+spec:
+  type: LoadBalancer
+  selector:
+    app: {{ .Values.name }}
+  ports:
+    - name: http
+      protocol: "TCP"
+      port: 80 # порт сервиса
+      targetPort: 80 # порт пода (докер-контейнера)

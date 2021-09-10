@@ -1,0 +1,36 @@
+image: mcr.microsoft.com/dotnet/sdk:5.0-focal
+
+stages:
+  - build
+  - deploy
+
+variables:
+  Version: '0.1.0.$CI_PIPELINE_IID'
+  ImageName: 'file-forwader-core'
+
+Build:
+  stage: build
+  only:
+    refs:
+      - master
+  tags:
+    - docker
+    - yandex
+  image: docker:stable
+  script:
+    - docker build -t $CI_REGISTRY_IMAGE/$ImageName:$CI_PIPELINE_IID.$CI_COMMIT_REF_SLUG --build-arg Version=$Version -f ./.ci/Dockerfile ./FileForwaderCore
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker push $CI_REGISTRY_IMAGE/$ImageName:$CI_PIPELINE_IID.$CI_COMMIT_REF_SLUG
+
+Deploy:
+  stage: deploy
+  only:
+    refs:
+      - master
+  tags:
+    - cluster
+    - kubernetes
+  image: dtzar/helm-kubectl
+  script:
+    - helm -n default upgrade --install file-forwader-core ./.ci/chart --set image.tag=$CI_PIPELINE_IID.$CI_COMMIT_REF_SLUG
+

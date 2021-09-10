@@ -1,0 +1,241 @@
+﻿@page "/"
+@using Microsoft.AspNetCore.Authorization
+@using System.IO
+@using Microsoft.AspNetCore.Components.Forms;
+@using System.Net.Http;
+@using System.Threading.Tasks;
+@using System.Threading
+@using FileForwarderClient.Shared
+@using System.Text.Json;
+@attribute [Authorize]
+@inject HttpClient Http
+
+<h1>Отправка файла</h1>
+
+@if (users == null)
+{
+    <p><em>Загрузка...</em></p>
+}
+else
+{
+    <br>
+    <EditForm Model=@upload>
+        Выберите пользователя:
+        <InputSelect @bind-Value="selectedUserId">
+            @foreach (var user in users)
+                {
+                <option value="@user.Id">@user.Name</option>
+                }
+        </InputSelect>
+    </EditForm>
+
+    <br>
+
+    <label>Cообщение:</label>
+    <input @bind="description" />
+
+    <br>
+    <br>
+
+    <p><InputFile OnChange="SelectFile" /></p>
+}
+
+@if (isFileSelected)
+{
+    <p> Размер выбранного файла <b>@upload.FileSizeInMb.ToString("F2")</b> MB</p>
+}
+
+@if (isUploading)
+{
+    <p> Передано <b>@totalMbRead.ToString("F2")</b> MB из <b>@upload.FileSizeInMb.ToString("F2")</b> MB</p>
+    var progress = (100.0 * totalBytesRead / upload.FileSizeInBytes).ToString("0");
+
+    <div class="progress">
+        <div class="progress-bar" role="progressbar" style="@($"width: {progress}%")" aria-valuenow="@progress" aria-valuemin="0" aria-valuemax="100"></div>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(result) && !hasBeenCancelled)
+{
+    @((MarkupString)result);
+}
+
+@if (!string.IsNullOrEmpty(error))
+{
+    @((MarkupString)error);
+}
+
+<br>
+
+<button disabled="@(!canUpload)" @onclick="OnUpload">Загрузить</button>
+<button disabled="@(!canCancel)" @onclick="CancelUpload">Отменить</button>
+
+@code {
+    private string selectedUserId;
+    private string description;
+    private MessageContract message = new();
+    private string messageId = string.Empty;
+
+    private UserContract[] users;
+    protected override async Task OnInitializedAsync()
+    {
+        await Http.GetAsync("api/users/exist");
+
+        users = await Http.GetFromJsonAsync<UserContract[]>("api/users");
+        selectedUserId = users.FirstOrDefault()?.Id ?? default;
+    }
+
+    CancellationTokenSource cancellation;
+    private MemoryStream memoryStream;
+    private Upload upload = new();
+
+    private bool canUpload = false;
+    private bool isUploading = false;
+    private bool isFileSelected = false;
+    private int totalBytesRead = 0;
+    private bool canCancel = false;
+    private bool hasBeenCancelled = false;
+    private string result = string.Empty;
+    private string error = string.Empty;
+
+    double totalMbRead => totalBytesRead / (1024F * 1024F);
+
+    private async Task OnUpload()
+    {
+        message.Description = description;
+        message.CreateDateTime = DateTime.Now;
+        message.ReceiverUserId = selectedUserId;
+
+        var response = await Http.PostAsJsonAsync<MessageContract>("api/message/create", message);
+        response.EnsureSuccessStatusCode();
+
+        messageId = await response.Content.ReadAsStringAsync();
+
+        if (!isFileSelected) return;
+
+        await using Stream stream = upload.BrowserFile.OpenReadStream(upload.FileSizeInBytes);
+        memoryStream = new MemoryStream((int)upload.FileSizeInBytes);
+        await stream.CopyToAsync(memoryStream);
+        memoryStream.Position = 0;
+
+        await UploadFile();
+    }
+
+    private void SelectFile(InputFileChangeEventArgs e)
+    {
+        error = string.Empty;
+        isFileSelected = true;
+        canUpload = true;
+        upload.BrowserFile = e.File;
+        upload.FileSizeInBytes = (int)e.File.Size;
+        upload.FileName = e.File.Name;
+
+        if (!string.Equals(Path.GetExtension(e.File.Name), ".zip", StringComparison.InvariantCultureIgnoreCase))
+        {
+            canUpload = false;
+            error = "Ошибка, отправлять можно только zip архивы";
+        }
+    }
+
+    async Task UploadFile()
+    {
+        cancellation?.Dispose();
+        cancellation = new CancellationTokenSource();
+        canCancel = true;
+        canUpload = false;
+        isUploading = true;
+        int bufferSize = 1024 * 1024;
+        byte[] buffer = new byte[bufferSize];
+        int bytesRead = 0;
+        int counter = 0;
+        string fileLocation = string.Empty;
+        string error = string.Empty;
+
+        try
+        {
+            while ((bytesRead = await memoryStream.ReadAsync(buffer, cancellation.Token)) != 0)
+            {
+                counter++;
+
+                var n = upload.FileSizeInBytes % bufferSize > 0 ? 1 : 0;
+
+                var info = new UploadFileInfo
+                {
+                    ChunckSize = bufferSize,
+                    CurrentChunk = counter,
+                    TotalChunckCount = (int)(upload.FileSizeInBytes / bufferSize) + n,
+                    TotalSize = upload.FileSizeInBytes
+                };
+
+                totalBytesRead += bytesRead;
+                using MemoryStream tmpMemoryStream = new MemoryStream(buffer, 0, bytesRead);
+                using MultipartFormDataContent content = new();
+                content.Add(
+                    content: new StreamContent(tmpMemoryStream, Convert.ToInt32(tmpMemoryStream.Length)),
+                    name: "\"file\"",
+                    fileName: upload.FileName
+                );
+                content.Add(
+                    content: new StringContent(JsonSerializer.Serialize(info)),
+                    name: "\"info\""
+                );
+
+
+                var response = await Http.PostAsync($"api/files/upload", content);
+
+                response.EnsureSuccessStatusCode();
+                if (string.IsNullOrEmpty(fileLocation))
+                {
+                    fileLocation = await response.Content.ReadAsStringAsync();
+                }
+
+                StateHasChanged();
+            };
+        }
+        catch (OperationCanceledException)
+        {
+            hasBeenCancelled = true;
+            await InvokeAsync(StateHasChanged);
+        }
+        finally
+        {
+            canCancel = false;
+        }
+
+        if (!hasBeenCancelled)
+        {
+            var attach = new FileContract
+            {
+                Name = upload.FileName,
+                Link = fileLocation,
+                Size = upload.FileSizeInBytes.ToString()
+            };
+
+            var response = await Http.PostAsJsonAsync<FileContract>($"api/message/attach/{messageId}", attach);
+            response.EnsureSuccessStatusCode();
+
+            result = $"Файл успешно загружен";
+        }
+
+        isFileSelected = false;
+        totalBytesRead = 0;
+        isUploading = false;
+        messageId = default;
+        upload = new();
+    }
+
+    public async Task CancelUpload()
+    {
+        hasBeenCancelled = true;
+        await InvokeAsync(StateHasChanged);
+        cancellation.Cancel();
+    }
+
+    public class Upload
+    {
+        public IBrowserFile BrowserFile { get; set; }
+        public string FileName { get; set; }
+        public long FileSizeInBytes { get; set; }
+        public double FileSizeInMb => FileSizeInBytes / (1024F * 1024F);
+    }
+}

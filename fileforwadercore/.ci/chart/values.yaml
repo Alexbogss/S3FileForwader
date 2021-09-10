@@ -1,0 +1,41 @@
+replicaCount: 1
+
+name: file-forwader-core
+
+imagePullSecrets:
+  - name: registry-secret
+
+image:
+  registry: registry.gitlab.com/netgeneration/
+  imageName: "fileforwadercore/file-forwader-core"
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+env:
+  APP_ENV: dev
+
+ingress:
+  enabled: true
+  annotations: 
+    kubernetes.io/ingress.class: "nginx"
+    # kubernetes.io/tls-acme: "true"
+    # cert-manager.io/cluster-issuer: "letsencrypt-issuer"
+  hosts:
+    - host: netgens.duckdns.org
+      paths:
+      - path: /core
+        backend:
+          serviceName: file-forwader-core
+          servicePort: 80
+  # tls: 
+  #   - secretName: ingress-tls
+  #     hosts:
+  #       - netgens.duckdns.org
+
+resources: 
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi

@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.name }}
+  labels:
+    app: {{ .Values.name }}
+    chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
+    release: "{{ .Release.Name }}-{{ .Values.image.tag }}"
+    heritage: {{ .Release.Service }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.name }}
+        chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
+        release: "{{ .Release.Name }}-{{ .Values.image.tag }}"
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: {{ .Values.name }}
+        image: "{{ .Values.image.registry }}{{ .Values.image.imageName }}:{{ .Values.image.tag }}"
+        env:
+          {{- $this := . -}}
+          {{- range $name, $value := .Values.env }}
+          - name: {{ $name }}
+            value: "{{ tpl $value $this }}"
+          {{- end }}
+        resources:
+          {{- toYaml .Values.resources | nindent 12 }}

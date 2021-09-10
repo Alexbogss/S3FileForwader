@@ -1,0 +1,36 @@
+﻿@page "/telegram"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.WebAssembly.Authentication
+
+@attribute [Authorize]
+@inject HttpClient Http
+
+<h3>Телеграм</h3>
+
+@if (token == null)
+{
+    <p><em>Загрузка...</em></p>
+}
+else
+{
+    <p>Токен для телеграмма: </p>@token
+}
+
+@code {
+    private string token;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var response = await Http.GetAsync("api/notification/token");
+            response.EnsureSuccessStatusCode();
+
+            token = await response.Content.ReadAsStringAsync();
+        }
+        catch (AccessTokenNotAvailableException exception)
+        {
+            exception.Redirect();
+        }
+    }
+}

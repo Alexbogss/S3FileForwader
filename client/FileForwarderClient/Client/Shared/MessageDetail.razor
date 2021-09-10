@@ -1,0 +1,67 @@
+﻿@using FileForwarderClient.Shared
+@inject HttpClient Http
+<h3>Детали сообщения</h3>
+
+
+@if (events == null || file == null)
+{
+    <p><em>Загрузка...</em></p>
+}
+else
+{
+    <label>Файл</label>
+
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Имя файла</th>
+                <th>Размер</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>@file.Name</td>
+                <td>@file.Size</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <a class="form-control btn btn-primary" href="@file.Link" target="_top">Скачать</a>
+
+    <br>
+    <br>
+
+    <label>События</label>
+
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Статус</th>
+                <th>Дата</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var eventItem in events)
+            {
+                <tr>
+                    <td>@eventItem.Value</td>
+                    <td>@eventItem.EventDateTime</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    [Parameter]
+    public MessageContract Message { get; set; }
+
+    private StatusEventContract[] events;
+    private FileContract file;
+
+    protected override async Task OnInitializedAsync()
+    {
+        events = await Http.GetFromJsonAsync<StatusEventContract[]>($"api/message/{Message.Id}/events");
+        file = await Http.GetFromJsonAsync<FileContract>($"api/message/{Message.Id}/file");
+    }
+}
